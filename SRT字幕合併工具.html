@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRT字幕合併工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-top: 0;
+        }
+        .container {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px 0;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .subtitle-item {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            background-color: white;
+            display: flex;
+            flex-direction: column;
+        }
+        .subtitle-item.selected {
+            background-color: #e6f7ff;
+            border-color: #91d5ff;
+        }
+        .subtitle-item.editing {
+            background-color: #fff8e1;
+            border-color: #ffd54f;
+        }
+        .timecode {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        .subtitle-text {
+            padding: 5px;
+            word-break: break-word;
+        }
+        .subtitle-input {
+            width: 100%;
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            margin-top: 5px;
+            display: none;
+        }
+        .controls {
+            margin: 15px 0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        #downloadBtn {
+            background-color: #2196F3;
+        }
+        #downloadBtn:hover {
+            background-color: #0b7dda;
+        }
+        #mergeBtn {
+            background-color: #ff9800;
+        }
+        #mergeBtn:hover {
+            background-color: #e68a00;
+        }
+        #editBtn {
+            background-color: #9c27b0;
+        }
+        #editBtn:hover {
+            background-color: #7b1fa2;
+        }
+        .file-upload {
+            margin: 15px 0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .instructions {
+            background-color: #fffde7;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border-left: 4px solid #ffd600;
+        }
+        
+        /* 新增的字幕控制區固定樣式 */
+        .subtitle-controls {
+            position: sticky;
+            top: 0;
+            background-color: white;
+            padding: 10px 0;
+            z-index: 100;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        /* 可滾動的字幕區域 */
+        .subtitle-container {
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 5px;
+            margin-top: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+        }
+        
+        /* 響應式調整 */
+        @media (max-width: 600px) {
+            button {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+            .controls {
+                gap: 5px;
+            }
+            .file-upload {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>SRT字幕合併工具</h1>
+    
+    <div class="container">
+        <div class="instructions">
+            <h3>使用說明：</h3>
+            <ol>
+                <li>上傳SRT文件或直接貼上SRT內容</li>
+                <li>點擊"編輯模式"切換編輯/選擇狀態</li>
+                <li>在編輯模式下可直接修改字幕文本</li>
+                <li>在選擇模式下可選取要合併的字幕</li>
+                <li>點擊"合併選中句子"按鈕</li>
+                <li>下載合併後的SRT文件</li>
+            </ol>
+        </div>
+        
+        <div class="file-upload">
+            <input type="file" id="fileInput" accept=".srt">
+            <button id="loadBtn">載入SRT</button>
+            <button id="editBtn">編輯模式</button>
+        </div>
+        
+        <textarea id="srtContent" placeholder="SRT內容將顯示在這裡..."></textarea>
+        
+        <!-- 固定在字幕區域上方的控制按鈕 -->
+        <div class="subtitle-controls">
+            <div class="controls">
+                <button id="selectAllBtn">全選</button>
+                <button id="deselectAllBtn">取消全選</button>
+                <button id="mergeBtn">合併選中句子</button>
+                <button id="downloadBtn" disabled>下載合併後的SRT</button>
+            </div>
+        </div>
+        
+        <!-- 可滾動的字幕區域 -->
+        <div class="subtitle-container">
+            <div id="subtitleList"></div>
+        </div>
+    </div>
+
+    <script>
+        // 全局變量
+        let subtitles = [];
+        let selectedIndices = new Set();
+        let isEditMode = false;
+        
+        // DOM元素
+        const srtContent = document.getElementById('srtContent');
+        const subtitleList = document.getElementById('subtitleList');
+        const loadBtn = document.getElementById('loadBtn');
+        const fileInput = document.getElementById('fileInput');
+        const selectAllBtn = document.getElementById('selectAllBtn');
+        const deselectAllBtn = document.getElementById('deselectAllBtn');
+        const mergeBtn = document.getElementById('mergeBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const editBtn = document.getElementById('editBtn');
+        
+        // 事件監聽器
+        loadBtn.addEventListener('click', loadSrtFile);
+        selectAllBtn.addEventListener('click', selectAll);
+        deselectAllBtn.addEventListener('click', deselectAll);
+        mergeBtn.addEventListener('click', mergeSelected);
+        downloadBtn.addEventListener('click', downloadMergedSrt);
+        editBtn.addEventListener('click', toggleEditMode);
+        
+        // 解析SRT內容
+        function parseSrt(content) {
+            const blocks = content.trim().split(/\r?\n\r?\n/);
+            const parsed = [];
+            
+            for (const block of blocks) {
+                const lines = block.split(/\r?\n/);
+                if (lines.length < 3) continue;
+                
+                const index = parseInt(lines[0]);
+                const timecode = lines[1];
+                const text = lines.slice(2).join('\n');
+                
+                // 解析時間碼
+                const timeMatch = timecode.match(/(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/);
+                if (!timeMatch) continue;
+                
+                const startTime = timeMatch[1];
+                const endTime = timeMatch[2];
+                
+                parsed.push({
+                    index,
+                    startTime,
+                    endTime,
+                    text,
+                    originalTimecode: timecode
+                });
+            }
+            
+            return parsed;
+        }
+        
+        // 顯示字幕列表
+        function displaySubtitles() {
+            subtitleList.innerHTML = '';
+            
+            subtitles.forEach((sub, idx) => {
+                const div = document.createElement('div');
+                div.className = 'subtitle-item';
+                
+                if (selectedIndices.has(idx)) {
+                    div.classList.add('selected');
+                }
+                if (isEditMode) {
+                    div.classList.add('editing');
+                }
+                
+                div.innerHTML = `
+                    <div class="timecode">${sub.startTime} --> ${sub.endTime}</div>
+                    <div class="subtitle-text">${sub.text}</div>
+                    <input type="text" class="subtitle-input" value="${sub.text.replace(/"/g, '&quot;')}">
+                `;
+                
+                const textElement = div.querySelector('.subtitle-text');
+                const inputElement = div.querySelector('.subtitle-input');
+                
+                if (isEditMode) {
+                    textElement.style.display = 'none';
+                    inputElement.style.display = 'block';
+                    
+                    inputElement.addEventListener('blur', () => {
+                        sub.text = inputElement.value;
+                        textElement.textContent = inputElement.value;
+                        updateSrtContent();
+                    });
+                    
+                    inputElement.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') {
+                            inputElement.blur();
+                        }
+                    });
+                } else {
+                    textElement.style.display = 'block';
+                    inputElement.style.display = 'none';
+                    
+                    div.addEventListener('click', () => {
+                        toggleSelection(idx);
+                    });
+                }
+                
+                subtitleList.appendChild(div);
+            });
+        }
+        
+        // 切換選擇狀態
+        function toggleSelection(index) {
+            if (isEditMode) return;
+            
+            if (selectedIndices.has(index)) {
+                selectedIndices.delete(index);
+            } else {
+                selectedIndices.add(index);
+            }
+            displaySubtitles();
+        }
+        
+        // 全選
+        function selectAll() {
+            if (isEditMode) return;
+            
+            subtitles.forEach((_, idx) => selectedIndices.add(idx));
+            displaySubtitles();
+        }
+        
+        // 取消全選
+        function deselectAll() {
+            if (isEditMode) return;
+            
+            selectedIndices.clear();
+            displaySubtitles();
+        }
+        
+        // 載入SRT文件
+        function loadSrtFile() {
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('請先選擇SRT文件');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                srtContent.value = e.target.result;
+                processSrtContent();
+            };
+            reader.readAsText(file);
+        }
+        
+        // 處理SRT內容
+        function processSrtContent() {
+            const content = srtContent.value.trim();
+            if (!content) return;
+            
+            subtitles = parseSrt(content);
+            selectedIndices.clear();
+            displaySubtitles();
+            downloadBtn.disabled = true;
+        }
+        
+        // 合併選中的句子
+        function mergeSelected() {
+            if (isEditMode) return;
+            
+            if (selectedIndices.size < 2) {
+                alert('請選擇至少兩個句子進行合併');
+                return;
+            }
+            
+            const sortedIndices = Array.from(selectedIndices).sort((a, b) => a - b);
+            const first = sortedIndices[0];
+            const last = sortedIndices[sortedIndices.length - 1];
+            
+            // 合併文本
+            const mergedText = sortedIndices.map(idx => subtitles[idx].text).join(' ');
+            
+            // 更新第一個選中的字幕
+            subtitles[first].text = mergedText;
+            subtitles[first].endTime = subtitles[last].endTime;
+            subtitles[first].originalTimecode = `${subtitles[first].startTime} --> ${subtitles[last].endTime}`;
+            
+            // 標記要刪除的字幕
+            const toRemove = sortedIndices.slice(1);
+            
+            // 從後往前刪除，避免影響索引
+            toRemove.sort((a, b) => b - a).forEach(idx => {
+                subtitles.splice(idx, 1);
+            });
+            
+            // 重新索引
+            subtitles.forEach((sub, idx) => {
+                sub.index = idx + 1;
+            });
+            
+            selectedIndices.clear();
+            selectedIndices.add(first);
+            displaySubtitles();
+            updateSrtContent();
+            downloadBtn.disabled = false;
+        }
+        
+        // 更新SRT內容文本框
+        function updateSrtContent() {
+            const srtLines = subtitles.map(sub => {
+                return `${sub.index}\n${sub.originalTimecode}\n${sub.text}`;
+            });
+            
+            srtContent.value = srtLines.join('\n\n');
+        }
+        
+        // 下載合併後的SRT
+        function downloadMergedSrt() {
+            const content = srtContent.value;
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'merged_subtitles.srt';
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 0);
+        }
+        
+        // 切換編輯模式
+        function toggleEditMode() {
+            isEditMode = !isEditMode;
+            
+            if (isEditMode) {
+                editBtn.textContent = '選擇模式';
+                editBtn.style.backgroundColor = '#4CAF50';
+                mergeBtn.disabled = true;
+                selectAllBtn.disabled = true;
+                deselectAllBtn.disabled = true;
+            } else {
+                editBtn.textContent = '編輯模式';
+                editBtn.style.backgroundColor = '#9c27b0';
+                mergeBtn.disabled = false;
+                selectAllBtn.disabled = false;
+                deselectAllBtn.disabled = false;
+                selectedIndices.clear();
+            }
+            
+            displaySubtitles();
+        }
+        
+        // 監聽文本框變化
+        srtContent.addEventListener('change', processSrtContent);
+        srtContent.addEventListener('input', processSrtContent);
+    </script>
+</body>
+</html>
